@@ -136,3 +136,6 @@ saveRDS(socal.fires, file = "Input_Data/week1/output data/socal_fires_data.rds")
 write_csv(socal.fires, "Input_Data/week1/output data/socal_fires_data.csv")  
 
 ggsave(filename = "Fire_Incidents", all_incidents.plot, device = "jpeg", "Input_Data/week1/output data/" )
+
+
+## new change

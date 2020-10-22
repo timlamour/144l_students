@@ -1,0 +1,70 @@
+---
+title: "Thomas_Fire_Progression"
+author: "Tim Lamour"
+date: "10/21/2020"
+output: github_document
+---
+
+# title
+## title
+### title
+
+basic text. 
+
+*italicize* single asterisks
+
+**bold** double asterisks
+
+1. make 
+2. numbered
+3. lists
+
+we can make: 
+
+- unumbered 
+- lists
+
+(link here)(https://google.com)
+
+#Load Libraries 
+
+```{r}
+library(tidyverse)
+library(readxl)
+library(lubridate)
+library(RColorBrewer)
+```
+
+# Load data
+
+```{r}
+socal.fire <- read_excel("~/Desktop/Github/144l_students/Input_Data/week1/Thomas_Fire_Progression.xlsx")
+```
+
+# Look at data 
+
+```{r}
+glimpse(socal.fire)
+```
+
+# Make plot dataframe
+
+```{r}
+plot.data <- socal.fire %>%
+  rename(Acres = Acres_Burned, Containment = Containment)
+```
+
+```{r}
+glimpse(plot.data)
+```
+
+```{r}
+options(scipen = 10000)
+ggplot(plot.data, aes(x = Date, y = Acres)) +
+  geom_line() +
+  labs(x = "Date", y = "Acres Burned", title = "Acres Burned Over Course of the Thomas Fire") +
+  theme_bw()
+
+```
+
+# This plot shows the total number of acres burned over the course of the Thomas Fire. From the plot, you can tell that the fire grew very rapidly during the 1st week, but then started to become contained. Since the line is flat around December 23rd, you can tell that this is when the fire was on its way to being 100% contained. The sharp dip in the data on December 12th is due to an error in the provided datasheet, the value should be 236,000 instead of 23,600. 

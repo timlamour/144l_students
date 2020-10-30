@@ -1,0 +1,295 @@
+---
+title: "EEMB 144L bacterial abundance"
+author: "Tim Lamour"
+date: "10/19/2020"
+output: github_document
+---
+
+# Intro
+
+This document shows how **individual bottle** bacterial abundance data from EEMB 144L experiments were processed, QC'd, and analyzedd
+
+```{r message=FALSE, warning=FALSE}
+library(tidyverse)
+library(readxl)
+library(lubridate)
+```
+
+# Import data
+
+```{r}
+excel_sheets("~/Desktop/Github/144l_students/Input_Data/week3/144L_2018_BactAbund.xlsx")
+
+metadata <- read_excel("~/Desktop/Github/144l_students/Input_Data/week3/144L_2018_BactAbund.xlsx", sheet = "Metadata")
+glimpse(metadata)
+unique(metadata$Experiment)
+unique(metadata$Location)
+unique(metadata$Bottle)
+unique(metadata$Treatment)
+
+data <- read_excel("~/Desktop/Github/144l_students/Input_Data/week3/144L_2018_BactAbund.xlsx", sheet = "Data")
+glimpse(data)
+
+joined <- left_join(metadata, data)
+names(joined)
+# summary(joined)
+glimpse(joined)
+
+```
+
+# Prepare data
+
+Convert date and time column values from being characters to dates, add columns with time elapsed for each for each experiment, and convert cells/ml to cells/l, subset data to select only VOI $ drop na's
+
+```{r warning=FALSE}
+cells <- joined %>%
+  mutate(Datetime = ymd_hm(Datetime), cells = Cells_ml * 1000) %>%
+  group_by(Bottle) %>%
+  mutate(interv = interval(first(Datetime), Datetime),
+         interv = as.duration(interv),
+         hours = interv/3600,
+         days = hours/24) %>%
+  ungroup() %>%
+  select(Experiment:Cell_Sample, hours, days, cells) %>%
+  drop_na(cells)
+  
+glimpse(cells)
+
+
+```
+
+# Plot growth curves
+
+```{r fig.height=4, fig.width=8}
+levels <- c("Control", "Ash Lechate", "Mud Lechate", "Glucose_Nitrate_Phosphate")
+
+cells %>%
+  ggplot(aes(x = days, y = cells, group = interaction(Experiment, Treatment, Bottle))) +
+  geom_line(aes(color = Treatment)) +
+  geom_point(aes(fill = Treatment), size = 3, color = "black", shape = 21) +
+  labs(x = "Days", y = expression(paste("Cells, L"^-1)), title = "Cell Abundance in each Treatment") +
+  guides(color = F) 
+  theme_bw()
+
+
+
+```
+
+This plot shows the cell abundance in each of the bottles of the 4 treatments. From this graph, it is clear that GNP and ash lechate were able to support a much higher population of cells and had a faster growth rate than the other two treatments. There was also a dying off period for both treatments after day 3. The mud lechate and the control were very similar to each other. 
+
+
+
+
+We can calculate: 
+
+- The total chanve in cells from the initial condition to the end of the experiment 
+- specific growth rates as the slope of ln(abundance) v time during the exponenetial growth phase
+= doubling time as ln(2) divided by the specific growth rate
+- the mean of each of these parameters for each treatment 
+
+First, we'll need to determine where exponential growth occurs in each of the experiments, if it does. So let's plot ln(abundance) v time
+
+# Identify exponential phase of growth
+
+**NOTE about logarithms in R** 
+
+log(x) gives the natural log of x, no log base 10
+log10(x) gives the log base 10
+log2(x) gives log base 2
+
+```{r}
+ln_cells <- cells %>%
+  group_by(Experiment, Treatment, Bottle) %>%
+  mutate(ln_cells = log(cells), 
+         diff_ln_cells = ln_cells - lag(ln_cells, default = first(ln_cells))) %>%
+  ungroup()
+```
+
+
+```{r fig.height=4, fig.width=12}
+ln_cells %>%
+  ggplot(aes(x = days, y = diff_ln_cells, group = interaction(Experiment, Treatment, Bottle))) +
+  geom_line(aes(fill = Treatment)) +
+  geom_point(aes(fill = Treatment), size = 3, color = "black", shape = 21) +
+  labs(x = "Days", y = expression(paste(Delta*"Cells, L"^-1)), title = "Timing of Exponential Growth Across Treatments") +
+  guides(color = F) +
+  facet_grid(Location~Bottle, scales = "free")
+  theme_bw()
+```
+
+For the control treatment, there was exponential growth for nearly all of the 1st day, and then again in bottle A between days 3-4. In the ash lechate treatment, there was exponential growth in the 1st day only. With the mud lechate, there was exponential growth in the 1st half day and the 1st half of the day 2. With the GNP treatment, there was exponential growth in the 1st day, and then again between days 1 and 2. 
+
+# Calculate growth rates, doubling times, and delta cells abundances
+
+```{r}
+growth <- ln_cells %>%
+  mutate(exp_start = 0,
+         exp_end = 1,
+         exp_end = ifelse(Treatment == "Glucose_Nitrate_Phosphate", 2, exp_end)) %>%
+  group_by(Experiment, Treatment, Bottle) %>%
+  mutate(ln_cells_exp_start = ifelse(Timepoint == exp_start, ln_cells, NA), 
+         ln_cells_exp_end = ifelse(Timepoint == exp_end, ln_cells, NA), 
+         cells_exp_start = ifelse(Timepoint == exp_start, cells, NA), 
+         cells_exp_end = ifelse(Timepoint == exp_end, cells, NA),
+         days_exp_start = ifelse(Timepoint == exp_start, days, NA), 
+         days_exp_end = ifelse(Timepoint == exp_end, days, NA),) %>%
+  fill(ln_cells_exp_start:days_exp_end, .direction = "updown") %>%
+  mutate(mew = (ln_cells_exp_end - ln_cells_exp_start)/(days_exp_end - days_exp_start),
+         doubling = log(2)/mew,
+         delta_cells = cells_exp_end - first(cells)) %>%
+  ungroup()
+
+glimpse(growth)
+      
+```
+
+# convert bacterial abundance & change in bacterial abundance to carbon units
+
+Apply a carbon conversion factor (CCF) to bacterial abundance (cells L^-1) to generate bacterial carbon (µmol C L^-1)
+
+We'll apply the average carbon content of bacterioplankton cells from coastal Japan (~30 fg C cell^-1). Reported by Fukuda et al. 1998. It has been used in previous experiments in the SBC. 
+
+```{r}
+bactcarbon <- growth %>%
+  mutate(bc = cells * (2.5 * 10^-9), 
+         delta_bc = delta_cells * (2.5 * 10^-9))
+
+glimpse(bactcarbon)
+```
+
+# calculate tratment averages
+
+```{r}
+averages <- bactcarbon %>%
+  group_by(Experiment, Treatment, Timepoint) %>%
+  mutate(ave_bc = mean(bc),
+         sd_bc = sd(bc)) %>%
+  ungroup() %>%
+  group_by(Experiment, Treatment) %>%
+  mutate(ave_mew = mean(mew),
+         sd_mew = sd(mew),
+         ave_doubling = mean(doubling),
+         sd_doubling = sd(doubling),
+         ave_delta_cells = mean(delta_cells),
+         sd_delta_cells = sd(delta_cells), 
+         ave_delta_bc = mean(delta_bc), 
+         sd_delta_bc = sd(delta_bc),
+         ave_lag = mean(days_exp_start), 
+         sd_lag = sd(days_exp_start)) %>%
+  ungroup()
+  
+glimpse(averages)
+ 
+```
+
+# Plot Treatment Averages
+
+```{r}
+averages %>%
+  ggplot(aes(x = days, y = ave_bc), group = interaction(Experiment, Treatment)) +
+  geom_line(aes(color = Treatment)) +
+  geom_point(aes(color = Treatment), size = 1) +
+  labs( x = "Days", y = expression(paste("Bacterial Carbon, µmol C L"^-1)), title = "Bacterial Carbon Concentration over Time", fill = "", color = "") +
+  theme_bw()
+```
+This plot shows the change in bacterial carbon over time for each of the 4 treatments. The GNP and ash leachate treatments has very similar amounts of bacterial carbon throughout the experiment. The control and mud lechate treatments were also very similar, but they had much less bacterial carbon that the other two treatments. However, there wasn't as much of a sharp did in bacterial carbon in these treatments compared to GNP and ash leachate after day 3. This could be because the GNP and ash leachate treatments support communities that were made up of bacteria that thrive in high nutrient conditions, which then couldn't support themselves as the nutrients began to run out. 
+
+
+## Barplots
+
+```{r}
+bar.data <- averages %>%
+  select(Location, Treatment, ave_mew:sd_lag) %>%
+  distinct()
+```
+
+```{r}
+mew <- bar.data %>%
+  ggplot(aes(x = Treatment, y = ave_mew), group = interaction(Location, Treatment)) +
+  geom_col(color = "black", fill = "blue") + 
+  geom_errorbar(aes(ymin = ave_mew - sd_mew, ymax = ave_mew + sd_mew), width = 0.1) +
+  labs(x = "", y = expression("µ, d"^-1), title = "Growth Rate") +
+  theme_bw()
+ 
+```
+
+
+```{r}
+doubling <- bar.data %>%
+  ggplot(aes(x = Treatment, y = ave_mew), group = interaction(Location, Treatment)) +
+  geom_col(color = "black", fill = "blue") + 
+  geom_errorbar(aes(ymin = ave_doubling - sd_doubling, ymax = ave_doubling + sd_doubling), width = 0.1) +
+  labs(x = "", y = expression("Doubling Time, d"), title = "Doubling Time") +
+  theme_bw()
+
+
+```
+
+
+
+```{r}
+delta_bc <- bar.data %>%
+  ggplot(aes(x = Treatment, y = ave_mew), group = interaction(Location, Treatment)) +
+  geom_col(color = "black", fill = "blue") + 
+  geom_errorbar(aes(ymin = ave_delta_bc - sd_delta_bc, ymax = ave_delta_bc + sd_delta_bc), width = 0.1) +
+  labs(x = "", y = expression("∆ Bacterial Carbon, µmol C L"^-1), title = "Change in Bacterial Carbon") +
+  theme_bw()
+```
+
+
+
+```{r}
+lag <- bar.data %>%
+  ggplot(aes(x = Treatment, y = ave_mew), group = interaction(Location, Treatment)) +
+  geom_col(color = "black", fill = "blue") + 
+  geom_errorbar(aes(ymin = ave_lag - sd_lag, ymax = ave_lag + sd_lag), width = 0.1) +
+  labs(x = "", y = "Lag Phase Days", title = "Duration of Lag Phase") +
+  theme_bw()
+```
+
+
+```{r}
+library(patchwork)
+```
+        
+        
+        
+```{r fig.height=6, fig.width=8}
+lag + delta_bc + mew + doubling + plot_annotation(tag_levels = "A")
+```
+
+
+These graphs show various growth parameters for the treatments. From these graphs, it is clear that all experimental treatments allowed for more bacterial growth than the control, with ash leachate allowing for the most growth during the exponential phase of the experiment. 
+
+
+
+
+
+
+# Save Data 
+
+
+```{r}
+saveRDS(averages, "~/Desktop/Github/144l_students/Input_Data/week1/output data/EEMB_144L_exp_processed_BacAbundance.rds")
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

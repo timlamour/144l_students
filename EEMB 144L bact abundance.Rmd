@@ -60,7 +60,7 @@ glimpse(cells)
 
 # Plot growth curves
 
-```{r fig.height=4, fig.width=8}
+```{r fig.height=12, fig.width=16}
 levels <- c("Control", "Ash Lechate", "Mud Lechate", "Glucose_Nitrate_Phosphate")
 
 cells %>%
@@ -106,7 +106,7 @@ ln_cells <- cells %>%
 ```
 
 
-```{r fig.height=4, fig.width=12}
+```{r fig.height=8, fig.width=18}
 ln_cells %>%
   ggplot(aes(x = days, y = diff_ln_cells, group = interaction(Experiment, Treatment, Bottle))) +
   geom_line(aes(fill = Treatment)) +
@@ -254,7 +254,7 @@ library(patchwork)
         
         
         
-```{r fig.height=6, fig.width=8}
+```{r fig.height=12, fig.width=14}
 lag + delta_bc + mew + doubling + plot_annotation(tag_levels = "A")
 ```
 
@@ -270,11 +270,11 @@ These graphs show various growth parameters for the treatments. From these graph
 
 
 ```{r}
-saveRDS(averages, "~/Desktop/Github/144l_students/Input_Data/week1/output data/EEMB_144L_exp_processed_BacAbundance.rds")
+saveRDS(averages, "~/Desktop/Github/144l_students/Input_Data/week1/output data/EEMB_144L_exp_processed_BacAbundance")
 ```
 
 
-
+saveRDS(averages, "")
 
 
 

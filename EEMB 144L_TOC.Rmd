@@ -1,0 +1,364 @@
+---
+title: "EEMB144L_TOC"
+author: "Tim Lamour"
+date: "11/3/2020"
+output: github_document
+---
+
+#Intro 
+
+This document shows how **individual bottle** TOC/DOC data from ACIDD remineralization experiments were processed, QC'd, and analyzed
+
+```{r}
+library(tidyverse)
+library(readxl)
+library(lubridate)
+```
+
+# Import Data 
+
+```{r}
+excel_sheets("~/Desktop/Github/144l_students/Input_Data/week4/144L_2018_Exp_TOC.xlsx")
+
+metadata <- read_excel("~/Desktop/Github/144l_students/Input_Data/week4/144L_2018_Exp_TOC.xlsx", sheet = "Metadata")
+
+data <- read_excel("~/Desktop/Github/144l_students/Input_Data/week4/144L_2018_Exp_TOC.xlsx", sheet = "Data")
+```
+
+```{r}
+glimpse(metadata)
+```
+
+```{r}
+glimpse(data)
+```
+
+# Prepare data
+
+```{r}
+joined <- left_join(metadata, data)
+
+toc <- joined %>%
+  mutate(Datetime = ymd_hm(Datetime)) %>%
+  group_by(Experiment, Bottle, Treatment) %>% 
+  mutate(interv = interval(first(Datetime), Datetime), hours = as.numeric(interv)/3600, days = hours/24) %>%
+  ungroup() %>%
+  select(Experiment:Datetime, hours, days, everything(), -c(contains("Sample")))
+
+subset <- toc %>%
+  select(Experiment, Bottle, Datetime, interv, hours, days)
+```
+```{r}
+glimpse(toc)
+```
+
+# Plot the curves
+
+## Pivot Data
+
+```{r}
+pivot_toc <- toc %>%
+  select(Experiment, Location, Bottle, Treatment, days, TOC, PTOC) %>%
+  pivot_longer(TOC:PTOC, names_to = "sample", values_to = "value")
+
+pivot_toc_sd <- toc %>%
+  select(Experiment, Location, Bottle, Treatment, days, TOC_sd, PTOC_sd) %>% 
+  pivot_longer(TOC_sd:PTOC_sd, names_to = "sample", names_prefix = "sd_", values_to = "sd")
+
+pivoted <- left_join(pivot_toc, pivot_toc_sd) %>%
+  mutate(sample = ifelse(sample == "TOC", "Bottle", "Vial"))
+
+glimpse(pivoted)
+```
+
+
+## Plot 
+
+```{r fig.height=10, fig.width=8}
+levels <- c("Control", "Ash Lechate", "Mud Lechate", "Glucose_Nitrate_Phosphate", "Campus Point", "Bottle", "Vial")
+
+pivoted %>%
+  filter(Location == "Campus Point") %>%
+  drop_na(value) %>%
+  ggplot(aes(x = days, y = value, group = interaction(Treatment, Bottle))) +
+  geom_point(aes(fill = sample), size = 3, shape = 21, alpha = 0.7) +
+  labs(x = "Days", y = expression("Total Organic Carbon, µmol C L"^-1), color = "", fill = "") + 
+  theme_bw() + 
+  facet_grid(rows = "Treatment", scales = "free") +
+  guides(color = F)
+  
+  
+```
+
+This graph shows the TOC concentrations in each of the treatments in both bottles and vials. For the ash lechate, GNP, and control there is a noticiable decrease in the concentration of TOC over time. However, while the mud lechate also decreases over time it is not as tightly correlated as the other treatments. Both bottles and vials produced similar results, as shown by the regression analysis of each other. 
+
+
+
+
+The analytical detection limit for our TOC analysis is ~1.5 µmol C L^-1^. 
+
+# TOC v PTOC (bottle v vial samples)
+
+```{r}
+library(lmodel2)
+
+reg.data <- toc %>%
+  drop_na(TOC) %>%
+  filter(Timepoint > 0)
+
+reg <- lmodel2(PTOC ~ TOC, data = reg.data, nperm = 99)
+
+```
+
+```{r}
+reg
+```
+
+```{r}
+intercept <- reg$regression.results[3, 2]
+slope <- reg$regression.results[3, 3]
+
+two_int <- reg$confidence.intervals[3, 2]
+two_slope <- reg$confidence.intervals[3, 4]
+nine_int <- reg$confidence.intervals[3, 3]
+nine_slope <- reg$confidence.intervals[3, 5]
+```
+
+```{r}
+reg.data %>%
+  ggplot(aes(x = TOC, y = PTOC)) +
+  geom_errorbar(aes(ymin = PTOC - PTOC_sd, ymax = PTOC + PTOC_sd), width = 0.05) +
+  geom_point(shape = 21, size = 4, alpha = 0.7) +
+  geom_abline(intercept = intercept, slope = slope, color = "black", linetype = 2, size = 1) + 
+  geom_abline(intercept = two_int, slope = two_slope, color = "black", linetype = 3, size = 1) +
+  geom_abline(intercept = nine_int, slope = nine_slope, color = "black", linetype = 3, size = 1) +
+  labs(x = expression("Bottle TOC, µmol C L"^-1), y = expression("Vial TOC, µmol C L"^-1)) + 
+  theme_bw() +
+  annotate(geom = "text", label = expression(atop("y = 1.03x + -2.12", paste("r"^2," = 0.96, ", italic(paste("p ", "= 0.000000004"))))), x = 81, y = 88, size = 4)
+```
+
+This plot shows that the measurements in vials and bottle of TOC are highly correlated to eachother and are not within the detection limit of our research methods. 
+
+
+
+
+```{r}
+bc <- read_rds("~/Desktop/Github/144l_students/Input_Data/week1/output data/EEMB_144L_exp_processed_BacAbundance.rds") %>%
+  select(-c(hours, days))
+
+merge <- left_join(toc, bc) %>%
+  select(Experiment:days, TOC:PTOC_sd, cells:diff_ln_cells, bc, ave_bc, sd_bc, everything(), -c(contains("Sample")) ) %>%
+  group_by(Experiment, Treatment, Bottle) %>%
+  fill(exp_start:sd_lag) %>%
+  ungroup()
+
+glimpse(merge)
+```
+```{r}
+glimpse(merge)
+```
+
+
+```{r}
+subset <- merge %>%
+  select(Experiment, Treatment, Bottle, days, PTOC, bc)
+```
+
+# Interpolate
+
+
+```{r}
+library(zoo)
+```
+
+We only want to interpolate within an experiment and not across experiments, so we'll perform the interpolation by using the split-apply-combine strategy. 
+
+- split the dataframe into a list of its elements (experiments and bottles)
+- apply the interpolation function to each of the list elements
+- combine the results into a new dataframe
+
+## split
+
+```{r}
+to_interpolate <- merge %>%
+  select(Experiment, Bottle, Timepoint, days, PTOC, bc) %>%
+  group_by(Experiment, Bottle)
+
+list <- to_interpolate %>%
+  group_split()
+
+keys <- to_interpolate %>%
+  group_keys() %>%
+  mutate(key = paste(Experiment, Bottle))
+
+names(list) <- keys$key
+```
+
+## Write the function 
+
+```{r}
+interp.func <- function(x) {
+  y <- zoo(x, order.by = x$days)
+  interp_toc <- round(as.numeric(na.approx(y$PTOC, na.rm = F)), 1)
+  interp_bc <- round(as.numeric(na.approx(y$bc, na.rm = F)), 1)
+  z <- cbind(y, interp_toc, interp_bc)
+  as.tibble(z)
+}
+```
+
+
+```{r}
+library(plyr)
+```
+
+
+## Apply and combine 
+
+```{r}
+interpolated <- lapply(list, interp.func) %>%
+  plyr::ldply(., as.data.frame) %>%
+  select(-c(.id, PTOC, bc, days)) %>%
+  mutate_at(vars(Timepoint:interp_bc), as.numeric) %>%
+  left_join(merge, .)
+```
+```{r}
+glimpse(interpolated)
+```
+
+# Estimate DOC, Bioavailability, BGEs
+
+```{r}
+doc <- interpolated %>%
+  mutate(doc = interp_toc - interp_bc) %>% 
+  group_by(Experiment, Bottle) %>%
+  mutate(bioav_doc = (first(doc) - last(na.omit(doc))) / first(doc), 
+         doc_exp_end = ifelse(Timepoint == exp_end, doc, NA), 
+         delta_doc = first(doc) - doc_exp_end,
+         tdelta_doc = first(doc) - last(na.omit(doc)),
+         bge = ifelse(delta_doc > 1.5, delta_bc/delta_doc, NA)) %>%
+  fill(doc_exp_end:bge, .direction = "downup") %>%
+  ungroup()
+
+
+glimpse(doc)
+```
+
+# Treatment averages 
+
+```{r}
+averages <- doc %>%
+  group_by(Experiment, Treatment, Timepoint) %>%
+  mutate(ave_toc = mean(PTOC), 
+         sd_toc = sd(PTOC)) %>%
+  ungroup() %>%
+  group_by(Experiment, Treatment) %>%
+  mutate(ave_bioav_doc = mean(bioav_doc), 
+         sd_bioav_doc = sd(bioav_doc), 
+         ave_delta_doc = mean(delta_doc),
+         sd_delta_doc = sd(delta_doc),
+         ave_tdelta_doc = mean(tdelta_doc), 
+         sd_tdelta_doc = sd(tdelta_doc),
+         ave_bge = mean(bge), 
+         sd_bge = sd(bge)) %>%
+  ungroup()
+           
+```
+
+
+```{r}
+glimpse(averages)
+```
+
+
+```{r}
+subset <- averages %>%
+  filter(Experiment == "144L_2018") %>%
+  select(Experiment, Treatment, Bottle, Timepoint, PTOC, ave_toc:sd_bge)
+
+glimpse(subset)
+```
+
+
+
+# Plot treatment curves (TOC)
+
+```{r}
+averages %>%
+  ggplot(aes(x = days, y = ave_toc, group = interaction(Experiment, Treatment))) +
+  geom_errorbar(aes(ymin = ave_toc - TOC_sd, ymax = ave_toc + TOC_sd, color = Treatment), width = 0.4) +
+  geom_line(aes(color = Treatment), size = 1, alpha = 0.7) +
+  labs(x = "Days", y = expression("Total Organic Carbon, µmol C L"^-1), color = "", fill = "") +
+  theme_bw() 
+```
+
+Unfortunately I couldn't get this graph to work due to my code giving me weird NA values when calculating average TOC, but looking at the data sheet I could tell that both ash lechate and the GNP treatment decreased significantly over time in regards to TOC concentration. This makes sense given the large amount of growth from our previous analysis. Both the control and mud lechate had DOC concentrations remain relatively constant, which is also consistent with the growth curves from last analysis. 
+
+# Plot Treatment averages (bars)
+
+
+```{r}
+bar.data <- averages %>%
+  select(Location, Treatment, ave_bioav_doc:sd_bge) %>%
+  distinct() 
+```
+
+
+```{r}
+bioav <- bar.data %>%
+  ggplot(aes(x = Treatment, y = ave_bioav_doc, group = interaction(Location, Treatment))) +
+  geom_col( color = "black", fill = "white", alpha = 1) +
+  geom_errorbar(aes(ymin = ave_bioav_doc - sd_bioav_doc, ymax = ave_bioav_doc + sd_bioav_doc), width = 0.1, size = 0.5) +
+  labs(x = "", y = expression(paste("Bioavailable DOC Fraction")), color = "") +
+  theme_bw() + 
+  guides(fill = F)
+```
+
+```{r}
+deldoc <- bar.data %>%
+  ggplot(aes(x = Treatment, y = ave_delta_doc, group = interaction(Location, Treatment))) +
+  geom_col( color = "black", fill = "white", alpha = 1) +
+  geom_errorbar(aes(ymin = ave_delta_doc - sd_delta_doc, ymax = ave_delta_doc + sd_delta_doc), width = 0.1, size = 0.5) +
+  labs(x = "", y = expression(paste("∆ DOC (to stationary), µmol C L"^-1)), color = "") +
+  theme_bw() + 
+  guides(fill = F)
+```
+
+
+```{r}
+total_deltadoc <- bar.data %>%
+  ggplot(aes(x = Treatment, y = ave_tdelta_doc, group = interaction(Location, Treatment))) +
+  geom_col( color = "black", fill = "white", alpha = 1) +
+  geom_errorbar(aes(ymin = ave_tdelta_doc - sd_tdelta_doc, ymax = ave_tdelta_doc + sd_tdelta_doc), width = 0.1, size = 0.5) +
+  labs(x = "", y = expression(paste("∆ DOC (total), µmol C L"^-1)), color = "") +
+  theme_bw() + 
+  guides(fill = F)
+```
+
+
+
+```{r}
+bge <- bar.data %>%
+  ggplot(aes(x = Treatment, y = ave_bge, group = interaction(Location, Treatment))) +
+  geom_col( color = "black", fill = "white", alpha = 1) +
+  geom_errorbar(aes(ymin = ave_bge - sd_bge, ymax = ave_bge + sd_bge), width = 0.1, size = 0.5) +
+  labs(x = "", y = expression(paste("Bacterial Growth Efficiency"^-1)), color = "") +
+  theme_bw() + 
+  guides(fill = F)
+```
+
+```{r}
+library(patchwork)
+```
+
+```{r fig.height=10, fig.width=6.5}
+deldoc / total_deltadoc / bioav / bge + plot_annotation(title = "Campus Point Experiments", tag_levels = "a")
+```
+
+Once again I wasn't able to get the data to work on the graph, but looking at the raw data sheet I could interpret that the bacterial growth efficiency of the ash lechate and GNP treatment were both similar and the highest, while the control and mud lechate were around the same values. GNP and ash lechate also had the highest amount of bioavailable DOC, while the control and mud were closer to each other. This aligns with our previous analysis of these conditions since those two treatments saw the most growth. The change in DOC to stationary was also the highest in GNP and ash lechate treatment which aligns with the bacterial abundance analysis since there was a huge spike in growth from T0 to T1. 
+
+
+```{r}
+saveRDS(averages, "~/Desktop/Github/144l_students/Input_Data/week1/output data/EEMB144L_exp_processed_DOC")
+```
+
+

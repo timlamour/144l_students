@@ -1,0 +1,265 @@
+---
+title: "Untitled"
+author: "Tim Lamour"
+date: "11/22/2020"
+output: github_document
+---
+
+# Intro
+
+Explore processed EEMB 144L 16s sequences using phyloseq
+
+
+```{r}
+library(tidyverse)
+library(phyloseq)
+library(RColorBrewer)
+```
+
+# Import Data
+
+```{r}
+count.tab <- read_rds("~/Desktop/Github/144l_students/Input_Data/week 6/seqtab-nochimtaxa.rds")
+tax.tab <- read_rds("~/Desktop/Github/144l_students/Input_Data/week 6/taxa.rds")
+sample.tab <- read_rds("~/Desktop/Github/144l_students/Output_data/Week 4/144L_processed_DOC_BGE.rds") %>%
+  drop_na(DNA_SampleID) %>%
+  column_to_rownames(var = "DNA_SampleID")
+```
+
+# Phyloseq Object 
+
+```{r}
+OTU = otu_table(count.tab, taxa_are_rows = TRUE)
+TAX = tax_table(tax.tab)
+SAM = sample_data(sample.tab)
+ps = phyloseq(OTU,TAX,SAM)
+```
+
+# Filter Sequences 
+
+filter out chloroplassts and mitochondria since we only intended to amplify bacterial sequences
+
+```{r}
+sub_ps <- ps %>%
+  subset_taxa(Family != "mitochondira" & Order != "Chloroplast")
+```
+
+
+# Sample Summary 
+
+As a first analysis, we will look at the distribution of read counts from our samples
+
+```{r}
+sample_sum_df <- data.frame(sum = sample_sums(sub_ps))
+```
+
+```{r}
+# mean, max and min of sample read counts 
+summary(sample_sum_df)
+```
+
+```{r}
+sub_ps <- ps %>%
+  subset_taxa(Family != "mitochondira" & Order != "Chloroplast")
+ggplot(sample_sum_df, aes(x = sum)) +
+  geom_histogram(color = "black", fill = "#377EB8", binwidth = 5000) +
+  ggtitle("Distribution of sample sequence depth") +
+  xlab("Read counts") +
+  theme(axis.title.y = element_blank()) +
+  theme_bw()
+```
+
+
+# Beta Diversity
+
+beta diversity = patterns in community strucutre between samples 
+
+## Subsample 
+
+we will rarefy (random subsample with replacement) the read depth of the samples first (scale to the smallest library size)
+
+```{r}
+ps_min <- rarefy_even_depth(sub_ps, sample.size = min(sample_sums(sub_ps)))
+
+mean(sample_sums(sub_ps)) #28796.92
+mean(sample_sums(ps_min)) #2064
+```
+
+## NMDS 
+
+Here we will look at non-metric multidimensional scaling (NMDS) ordinations of our full community samples. For NMDS plots it's important to set a seed since the starting positions of samples in the algorithm is random 
+
+```{r}
+set.seed(1)
+# Ordinate
+nmds <- ordinate(sub_ps, method = "NMDS", distance = "bray") # stress = 0.07
+```
+
+```{r}
+set.seed(1)
+# Ordinate 
+nmds_min <- ordinate(ps_min, method = "NMDS", distance = "bray") # stress = 0.08
+```
+
+```{r}
+nmds.plot <- plot_ordination(sub_ps, nmds, title = "NMDS") +
+  geom_point(aes(fill = days, shape = factor(Treatment)), alpha = 0.6, stroke = 2, size = 4) + 
+  scale_shape_manual(values = c(21, 22, 23, 24)) +
+  scale_fill_gradient(low = "#0db5e6", high = "#d31f2a") +
+  theme_bw()
+
+
+#removing one of the plotting layers (there are points within points)
+nmds.plot$layers <- nmds.plot$layers[-1]
+nmds.plot +
+  facet_grid(~Location) +
+  guides(fill = guide_colorbar(title = "Days"), shape = guide_legend(title = "Treatment"))
+
+```
+
+```{r}
+nmds_min.plot <- plot_ordination(ps_min, nmds_min, title = "NMDS") +
+  geom_point(aes(fill = days, shape = factor(Treatment)), alpha = 0.6, stroke = 2, size = 4) +
+  scale_shape_manual(values = c(21, 22, 23, 24)) +
+  scale_fill_gradient(low = "#0db5e6", high = "#d31f2a") +
+  theme_bw()
+
+nmds_min.plot$layers <- nmds_min.plot$layers[-1]
+nmds_min.plot +
+  facet_grid(~Location) +
+  guides(fill = guide_colorbar(title = "Days"), shape = guide_legend(title = "Treatment"))
+
+```
+
+
+# Alpha Diversity 
+
+we are going to calculate the Chao1 index for richness and the Shannon diversity index. We will use the subsampled library, which retains estimates of the species abundance of the real population while standardizing sampling effort. 
+
+```{r}
+richness <- estimate_richness(ps_min, measures = c("Chao1", "Shannon")) %>%
+  rownames_to_column(., var = "DNA_ID") %>%
+  mutate_at(vars(DNA_ID), str_replace_all, pattern = "X144", "144")
+```
+
+
+let's add the sample metadata into this dataframe 
+
+```{r}
+alphadiv <- left_join(richness, sample.tab %>%
+  rownames_to_column(., var = "DNA_ID"))
+```
+
+```{r}
+library(ggpubr)
+```
+
+
+```{r fig.height=8, fig.width=12}
+pivot.data <- alphadiv %>%
+  select(Treatment, Location, Bottle, Timepoint, days, Chao1, Shannon) %>%
+  pivot_longer(., cols = c(Chao1, Shannon), names_to = "measure", values_to = "est") %>%
+  left_join(., alphadiv %>%
+              select(Treatment, Location, Bottle, Timepoint, days, se.chao1)) %>%
+  mutate(se.chao1 = ifelse(measure == "Chao1", se.chao1, NA))
+
+
+alpha.plot <- ggboxplot(pivot.data, x = "Timepoint", y = "est", 
+                        xlab = expression(italic(paste(""))),
+                        ylab = expression(italic(paste("Alpha Diversity Measure"))),
+                        add = "dotplot", 
+                        width = 0.2,
+                        ggtheme = theme_bw()) +
+  stat_compare_means(label.x = "6") +
+  facet_grid(measure~ factor(Treatment), scales = "free")
+  
+
+```
+
+## Generate relative abundances
+
+```{r}
+ps_std <- transform_sample_counts(ps_min, function(x) x/sum(x))
+ps_std.tab <- as(otu_table(ps_std), "matrix")
+ps_std.df = as.data.frame(ps_std.tab)
+```
+
+## Make table 
+
+
+```{r}
+tax.df <- as.data.frame(tax.tab)
+custom.tab <- tax.df %>%
+  rownames_to_column(., var = "asv") %>%
+  left_join(., ps_std.df %>% rownames_to_column(., var = "asv")) %>%
+  mutate(pco = paste(Phylum, "_", Class, "_", Order)) %>%
+  select(-c(asv:Genus)) %>% 
+  select(pco,everything()) %>%
+  group_by(pco) %>%
+  summarise_at(vars(contains(c("144"))), sum, na.rm = T) %>% 
+  ungroup()
+
+#save the row names and then  make them into the column names 
+colnames <- custom.tab[,1]
+t_custom.tab <- as.data.frame(t(custom.tab[,-1]))
+colnames(t_custom.tab) <- colnames$pco
+
+#merge
+sweet.tab <- t_custom.tab %>%
+  rownames_to_column(., var = "sample") %>%
+  left_join(., sample.tab %>% rownames_to_column(., var = "sample") %>% select(sample, Experiment, Location, Bottle, Treatment, Timepoint, days, cells)) %>%
+  select(sample, Experiment:cells, everything())
+
+relabund <- sweet.tab %>%
+  select(-c(sample:cells)) %>%
+  .[ , colSums(.) > 0] %>%
+  .[, order(colSums(-.))] %>%
+  bind_cols(sweet.tab %>% select(sample:cells), .)
+
+```
+
+## Heatmap 
+
+```{r fig.height=15, fig.width=8}
+relaheat.data <- relabund %>%
+  select(-c(sample, Experiment, Location, Bottle, days, cells)) %>%
+           pivot_longer(.,-c(Treatment:Timepoint), names_to = "taxa", values_to = "relabund") %>%
+           separate(taxa, into = c("p", "c", "o"), sep = "_")
+
+library(viridis)
+
+relabund <- relaheat.data %>%
+  ggplot(aes(x = Timepoint, y = o)) +
+  geom_tile(aes(fill = relabund), color = "white") +
+  scale_fill_viridis(option = "D") +
+  labs(x = "", y = "Order", fill = "Relative Abundance") +
+  facet_grid(~factor(Treatment)) +
+  theme_bw() +
+  theme(axis.text.y = element_text(size = 12),
+        legend.position = "top") +
+  guides(fill = guide_colourbar(barheight = 2, barwidth = 20, frame.colour = "black", frame.linewidth = 2, ticks.colour = "black", ticks.linewidth = 1), color = F)
+
+```
+
+# Save and knit 
+
+```{r}
+saveRDS(sweet.tab, "~/Desktop/Github/144l_students/Output_data/Week 6/Custom_ASV_Table.rds")
+
+saveRDS(sub_ps, "~/Desktop/Github/144l_students/Output_data/Week 6/phyloseq_obj.rds")
+
+saveRDS(ps_min, "~/Desktop/Github/144l_students/Output_data/Week 6/subsampled_phyloseq_obj.rds")
+
+saveRDS(alphadiv, "~/Desktop/Github/144l_students/Output_data/Week 6/alphadiv.rds")
+```
+
+
+
+
+
+
+
+
+
+
+

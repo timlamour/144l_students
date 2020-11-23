@@ -1,0 +1,33 @@
+---
+title: "EEMB 144L Sequence Data plots"
+author: "Tim Lamour"
+date: "11/16/2020"
+output: github_document
+---
+
+# Intro
+
+We explore the processed EEMB 144L 16s sequences using phyloseq
+
+# Install phyloseq
+
+```{r}
+# BiocManager::install("phyloseq")
+```
+
+```{r}
+library(tidyverse)
+library(phyloseq)
+library(RColorBrewer)
+```
+
+# Import Data 
+
+```{r}
+count.tab <- read_rds("~/Desktop/Github/144l_students/Input_Data/week 6/seqtab-nochimtaxa.rds") #table of counts for each sequence in each sample
+
+tax.tab <- read_rds("~/Desktop/Github/144l_students/Input_Data/week 6/taxa.rds") #table that matches ASV to sequence
+
+sample.tab <- read_rds("~/Desktop/Github/144l_students/Input_Data/week1/output data/")
+```
+

@@ -131,6 +131,8 @@ nmds_min.plot +
 
 ```
 
+These graphs show that the patterns between sub-sampling and not sub-sampling are essentially the same, and that we can go forward with our standardized data set. The stress of this plot was ~0.08 so this is an accurate representation of this data. 
+
 
 # Alpha Diversity 
 
@@ -220,7 +222,7 @@ relabund <- sweet.tab %>%
 
 ## Heatmap 
 
-```{r fig.height=15, fig.width=8}
+```{r fig.height=10, fig.width=8}
 relaheat.data <- relabund %>%
   select(-c(sample, Experiment, Location, Bottle, days, cells)) %>%
            pivot_longer(.,-c(Treatment:Timepoint), names_to = "taxa", values_to = "relabund") %>%
@@ -240,6 +242,9 @@ relabund <- relaheat.data %>%
   guides(fill = guide_colourbar(barheight = 2, barwidth = 20, frame.colour = "black", frame.linewidth = 2, ticks.colour = "black", ticks.linewidth = 1), color = F)
 
 ```
+
+This figure shows that the bacterial community composition of the different treatments changes over time, and that there are different communities present in the different treatments. For example, the GNP treatment becomes almost completely dominated by Oceanospirillales. The other treatments all do see a rise in Oceanospirillales, but not nearly to the same extent as GNP. Additionally, some orders are present in some treatments but are hardly present in others. For example, campylobacterales are very present in the ash lechate but are not in the others. This could indicate that there is some nutrient source in each one of these treatments that favors the growth of a barticular type of bacteria. 
+
 
 # Save and knit 
 

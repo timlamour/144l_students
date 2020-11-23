@@ -110,7 +110,7 @@ ps_min <- rarefy_even_depth(sub_ps, sample.size = min(sample_sums(sub_ps)))
 
     ## ...
 
-    ## 124OTUs were removed because they are no longer 
+    ## 128OTUs were removed because they are no longer 
     ## present in any sample after random subsampling
 
     ## ...
@@ -177,40 +177,41 @@ nmds_min <- ordinate(ps_min, method = "NMDS", distance = "bray") # stress = 0.08
 
     ## Square root transformation
     ## Wisconsin double standardization
-    ## Run 0 stress 0.09140828 
-    ## Run 1 stress 0.1517714 
-    ## Run 2 stress 0.09140927 
-    ## ... Procrustes: rmse 0.000443022  max resid 0.001555655 
+    ## Run 0 stress 0.08853383 
+    ## Run 1 stress 0.08853383 
+    ## ... Procrustes: rmse 3.824685e-06  max resid 8.949823e-06 
     ## ... Similar to previous best
-    ## Run 3 stress 0.09140871 
-    ## ... Procrustes: rmse 0.00032547  max resid 0.001139544 
-    ## ... Similar to previous best
-    ## Run 4 stress 0.09073386 
+    ## Run 2 stress 0.08902455 
+    ## ... Procrustes: rmse 0.01080268  max resid 0.04373183 
+    ## Run 3 stress 0.08853383 
     ## ... New best solution
-    ## ... Procrustes: rmse 0.02258251  max resid 0.09201593 
-    ## Run 5 stress 0.1596527 
-    ## Run 6 stress 0.09073386 
-    ## ... New best solution
-    ## ... Procrustes: rmse 1.824078e-05  max resid 4.46396e-05 
+    ## ... Procrustes: rmse 2.497277e-06  max resid 7.523524e-06 
     ## ... Similar to previous best
-    ## Run 7 stress 0.1775145 
-    ## Run 8 stress 0.09073386 
-    ## ... New best solution
-    ## ... Procrustes: rmse 1.111493e-05  max resid 2.770812e-05 
+    ## Run 4 stress 0.08902455 
+    ## ... Procrustes: rmse 0.01080251  max resid 0.04373015 
+    ## Run 5 stress 0.1656777 
+    ## Run 6 stress 0.08853383 
+    ## ... Procrustes: rmse 1.766424e-06  max resid 4.133441e-06 
     ## ... Similar to previous best
-    ## Run 9 stress 0.1747778 
-    ## Run 10 stress 0.1688083 
-    ## Run 11 stress 0.13779 
-    ## Run 12 stress 0.1083114 
-    ## Run 13 stress 0.1720981 
-    ## Run 14 stress 0.1714672 
-    ## Run 15 stress 0.09083831 
-    ## ... Procrustes: rmse 0.003866783  max resid 0.0137538 
-    ## Run 16 stress 0.1920371 
-    ## Run 17 stress 0.1605561 
-    ## Run 18 stress 0.09140969 
-    ## Run 19 stress 0.1083115 
-    ## Run 20 stress 0.1083115 
+    ## Run 7 stress 0.1806392 
+    ## Run 8 stress 0.08902455 
+    ## ... Procrustes: rmse 0.01080223  max resid 0.04372822 
+    ## Run 9 stress 0.1775056 
+    ## Run 10 stress 0.1681517 
+    ## Run 11 stress 0.1373051 
+    ## Run 12 stress 0.08902455 
+    ## ... Procrustes: rmse 0.01080279  max resid 0.04373293 
+    ## Run 13 stress 0.1813314 
+    ## Run 14 stress 0.1017319 
+    ## Run 15 stress 0.08902455 
+    ## ... Procrustes: rmse 0.01080242  max resid 0.04372942 
+    ## Run 16 stress 0.189056 
+    ## Run 17 stress 0.101445 
+    ## Run 18 stress 0.08853383 
+    ## ... Procrustes: rmse 2.234729e-06  max resid 7.030563e-06 
+    ## ... Similar to previous best
+    ## Run 19 stress 0.1017319 
+    ## Run 20 stress 0.101445 
     ## *** Solution reached
 
 ``` r
@@ -244,6 +245,11 @@ nmds_min.plot +
 ```
 
 ![](phyloseq_files/figure-gfm/unnamed-chunk-12-1.png)<!-- -->
+
+These graphs show that the patterns between sub-sampling and not
+sub-sampling are essentially the same, and that we can go forward with
+our standardized data set. The stress of this plot was \~0.08 so this is
+an accurate representation of this data.
 
 # Alpha Diversity
 
@@ -350,9 +356,9 @@ relaheat.data <- relabund %>%
            separate(taxa, into = c("p", "c", "o"), sep = "_")
 ```
 
-    ## Warning: Expected 3 pieces. Additional pieces discarded in 48 rows [5, 36, 57,
-    ## 88, 109, 140, 161, 192, 213, 244, 265, 296, 317, 348, 369, 400, 421, 452, 473,
-    ## 504, ...].
+    ## Warning: Expected 3 pieces. Additional pieces discarded in 48 rows [5, 38, 54,
+    ## 87, 103, 136, 152, 185, 201, 234, 250, 283, 299, 332, 348, 381, 397, 430, 446,
+    ## 479, ...].
 
 ``` r
 library(viridis)
@@ -372,6 +378,18 @@ relabund <- relaheat.data %>%
         legend.position = "top") +
   guides(fill = guide_colourbar(barheight = 2, barwidth = 20, frame.colour = "black", frame.linewidth = 2, ticks.colour = "black", ticks.linewidth = 1), color = F)
 ```
+
+This figure shows that the bacterial community composition of the
+different treatments changes over time, and that there are different
+communities present in the different treatments. For example, the GNP
+treatment becomes almost completely dominated by Oceanospirillales. The
+other treatments all do see a rise in Oceanospirillales, but not nearly
+to the same extent as GNP. Additionally, some orders are present in some
+treatments but are hardly present in others. For example,
+campylobacterales are very present in the ash lechate but are not in the
+others. This could indicate that there is some nutrient source in each
+one of these treatments that favors the growth of a barticular type of
+bacteria.
 
 # Save and knit
 
